@@ -1,0 +1,46 @@
+name: ${PROJECT_NAME}
+
+services:
+  # CouchDB is the database that the Self-hosted LiveSync plugin syncs your vault through.
+  # It shares tailscale's network, so it is only reachable over your tailnet (no host ports).
+  couchdb:
+    image: couchdb:3
+    restart: unless-stopped
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+    volumes:
+      - ./couchdb/data:/opt/couchdb/data
+      # The LiveSync config is mounted read only OUTSIDE /opt/couchdb, because the CouchDB
+      # entrypoint chowns everything under /opt/couchdb and crashes on read only files.
+      - ./couchdb/config:/opt/oivi/config:ro
+    # On every start, copy livesync.ini into local.d and then hand off to the normal entrypoint.
+    # The docker.ini that CouchDB generates stays inside the container and never touches git.
+    # It is named 00-* so docker.ini sorts after it: CouchDB writes config changes made
+    # through its API to the last file in local.d, and that one has to be writable.
+    command:
+      - sh
+      - -c
+      - cp /opt/oivi/config/livesync.ini /opt/couchdb/etc/local.d/00-livesync.ini && exec /docker-entrypoint.sh /opt/couchdb/bin/couchdb
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+
+  # Tailscale is used for networking (highly recommend learning it--it's an awesome tool)
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: ${TS_HOSTNAME:-obsidian}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: ${TS_HOSTNAME:-obsidian}
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_SERVE_CONFIG: "/config/serve.json"
+    volumes:
+      - ./tailscale/state:/var/lib/tailscale
+      - ./tailscale/config:/config
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - net_admin
+      - sys_module
+    restart: unless-stopped

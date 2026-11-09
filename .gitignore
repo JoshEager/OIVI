@@ -1,0 +1,4 @@
+tailscale/state
+couchdb/data
+.env
+__pycache__/
